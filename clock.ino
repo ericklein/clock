@@ -9,7 +9,8 @@
   Target
     - Works with all Arduino boards
     - Overview of 16x2 LCD panels available at: http://oomlout.com/parts/LCDD-01-guide.pdf
-    - Overview of ChronoDot at: http://docs.macetech.com/doku.php/chronodot_v2.0
+    - Overview of ChronoDot (RTC) at: http://docs.macetech.com/doku.php/chronodot_v2.0
+    - Overview of HC-SR04 (ultrasonic sensor) at: https://docs.google.com/document/d/1Y-yZnNhMYy7rwhAgyL_pfa39RsB-x2qR4vP8saG73rE/edit
     
 
   Revisions
@@ -18,9 +19,18 @@
     - version cloned from current button though functionality is not used
     - reading from ChronoDot via simple i2c read
     - ChronoDot time set via example code
+  04/16/17
+    - button toggles screen text on and off
+  04/18/17
+    - Added ultrasonic code which will ultimately trigger clock visibility 
 
   Feature Requests
-    - read via time library
+    - 041417 - read RTC via time library
+    - 041617 - put LED backlight under pin control
+    - 041817 - display bug due to cursor position and time length needs to get fix (minutes and seconds)
+    - 041817 - integrate ultrasonic into display, dependent on backlight control
+    - 041817 - move LED to I2C
+    
 */
 
 // Library initialization
@@ -29,13 +39,14 @@
 
 // Assign Arduino pins
 #define pushButtonOnePin  7
+#define trigPin 12
+#define echoPin 13
+
 // initialize LCD library with pin assignments
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+LiquidCrystal lcd(11, 10, 5, 4, 3, 2);
 
 // Assign global variables
-// messages to display - use same str length to overwrite previous line on-screen
-String time_header = "Current time is:";
-
+boolean screenState = true;
 const byte longPressLength = 25;    // Min number of loops for a long press
 const byte loopDelay = 20;          // Delay per main loop in ms
 
@@ -108,8 +119,17 @@ void buttonEvent(const char* button_name, int event)
   if ((button_name == "buttonOne") && (event == 1))
   {
     Serial.println("short press on button one");
+    if (screenState)
+    {
+      lcd.noDisplay();
+    }
+    else
+    {
+      lcd.display();
+    }
+    screenState = !screenState;
   }
-  //long press on buttonTwo
+  //long press on buttonOne
   if ((button_name == "buttonOne") && (event == 2))
   {
     Serial.println("long press on button one");
@@ -120,6 +140,10 @@ void buttonEvent(const char* button_name, int event)
 void setup() {
   Wire.begin();
   Serial.begin(57600);
+
+  //Setup ultrasonic sensor
+    pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
   
   // Setup push buttons
   buttonOne.init();
@@ -127,7 +151,7 @@ void setup() {
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
   // display initial screen information
-  lcd.print(time_header);
+  lcd.print("Current time is:");
 
   // clear /EOSC bit
   // Sometimes necessary to ensure that the clock
@@ -169,6 +193,27 @@ void loop() {
   lcd.setCursor(0, 1);
   lcd.print(hours); lcd.print(":"); lcd.print(minutes); lcd.print(":"); lcd.print(seconds);
   Serial.print(hours); Serial.print(":"); Serial.print(minutes); Serial.print(":"); Serial.println(seconds);
+  }
+
+  // ultrasonic read (test)
+   long duration, distance;
+  digitalWrite(trigPin, LOW);  // Added this line
+  delayMicroseconds(2); // Added this line
+  digitalWrite(trigPin, HIGH);
+//  delayMicroseconds(1000); - Removed this line
+  delayMicroseconds(10); // Added this line
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH);
+  distance = (duration/2) / 29.1;
+  if (distance < 10) {  
+    Serial.println("turn on the clock");
+}
+  if (distance >= 200 || distance <= 0){
+    Serial.println("Out of range");
+  }
+  else {
+    Serial.print(distance);
+    Serial.println(" cm");
   }
  
   delay(1000);
