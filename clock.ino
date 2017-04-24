@@ -1,40 +1,42 @@
 /*
   Project Name : clock
   Developer : Eric Klein Jr. (temp2@ericklein.com)
-  Description : Clock
-  Last Revision Date : 04/14/17
-
-  Sources
+  Description : Clock that only turns on when an object (hand) is close to the device
+  Last Revision Date : 04/23/17
     
   Target
-    - Works with all Arduino boards
+    - Works with all Arduino boards, uses I2C ports which are board dependent
     - Overview of 16x2 LCD panels available at: http://oomlout.com/parts/LCDD-01-guide.pdf
     - Overview of ChronoDot (RTC) at: http://docs.macetech.com/doku.php/chronodot_v2.0
     - Overview of HC-SR04 (ultrasonic sensor) at: https://docs.google.com/document/d/1Y-yZnNhMYy7rwhAgyL_pfa39RsB-x2qR4vP8saG73rE/edit
     
-
   Revisions
   04/14/17 
     - version cloned from current badge to control 6 pin LCD screen
     - version cloned from current button though functionality is not used
     - reading from ChronoDot via simple i2c read
-    - ChronoDot time set via example code
+    - ChronoDot time set via example code not in this code base (yet?)
   04/16/17
-    - button toggles screen text on and off
+    - button toggles screen text on and off, did not do what I wanted functionality wise
   04/18/17
-    - Added ultrasonic code which will ultimately trigger clock visibility 
+    - Added ultrasonic code which will ultimately trigger clock visibility
+  04/23/17
+    - 041617 - put LCD backlight under programatic control
+    - 041817 - integrate ultrasonic into display, dependent on backlight control
+    - 041817 - move LCD to I2C
+    - button code removed
+    
 
   Feature Requests
     - 041417 - read RTC via time library
-    - 041617 - put LED backlight under pin control
     - 041817 - display bug due to cursor position and time length needs to get fix (minutes and seconds)
-    - 041817 - integrate ultrasonic into display, dependent on backlight control
-    - 041817 - move LED to I2C
+    - 041917 - untrasonic as range finding function returning cm as int
+    - 042317 - implement debug flag for conditional debug messages
     
 */
 
 // Library initialization
-#include <LiquidCrystal.h>
+#include "Adafruit_LiquidCrystal.h"
 #include <Wire.h>
 
 // Assign Arduino pins
@@ -42,11 +44,10 @@
 #define trigPin 12
 #define echoPin 13
 
-// initialize LCD library with pin assignments
-LiquidCrystal lcd(11, 10, 5, 4, 3, 2);
+// Connect via i2c, default address #0 (A0-A2 not jumpered)
+Adafruit_LiquidCrystal lcd(0);
 
 // Assign global variables
-boolean screenState = true;
 const byte longPressLength = 25;    // Min number of loops for a long press
 const byte loopDelay = 20;          // Delay per main loop in ms
 
@@ -119,15 +120,6 @@ void buttonEvent(const char* button_name, int event)
   if ((button_name == "buttonOne") && (event == 1))
   {
     Serial.println("short press on button one");
-    if (screenState)
-    {
-      lcd.noDisplay();
-    }
-    else
-    {
-      lcd.display();
-    }
-    screenState = !screenState;
   }
   //long press on buttonOne
   if ((button_name == "buttonOne") && (event == 2))
@@ -142,11 +134,11 @@ void setup() {
   Serial.begin(57600);
 
   //Setup ultrasonic sensor
-    pinMode(trigPin, OUTPUT);
+  pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   
   // Setup push buttons
-  buttonOne.init();
+  // buttonOne.init();
  
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
@@ -167,10 +159,10 @@ void setup() {
 void loop() {
 
   // read button for events
-  int event1 = buttonOne.handle();
+  //int event1 = buttonOne.handle();
 
   // deal with button events
-  buttonEvent("buttonOne", event1);
+  //buttonEvent("buttonOne", event1);
 
     // send request to receive data starting at register 0
   Wire.beginTransmission(0x68); // 0x68 is DS3231 device address
@@ -205,16 +197,17 @@ void loop() {
   digitalWrite(trigPin, LOW);
   duration = pulseIn(echoPin, HIGH);
   distance = (duration/2) / 29.1;
-  if (distance < 10) {  
+  if (distance < 20)
+  {  
     Serial.println("turn on the clock");
-}
-  if (distance >= 200 || distance <= 0){
-    Serial.println("Out of range");
+    lcd.setBacklight(HIGH);
   }
-  else {
+  else
+  {
+    Serial.println("turn off the backlight");
+    lcd.setBacklight(LOW);
+  }
     Serial.print(distance);
     Serial.println(" cm");
-  }
- 
   delay(1000);
 }
