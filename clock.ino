@@ -2,7 +2,7 @@
   Project Name : clock
   Developer : Eric Klein Jr. (temp2@ericklein.com)
   Description : Clock that only turns on when an object (hand) is close to the device
-  Last Revision Date : 04/23/17
+  Last Revision Date : 07/15/17
     
   Target
     - Works with all Arduino boards, uses I2C ports which are board dependent
@@ -25,32 +25,42 @@
     - 041817 - integrate ultrasonic into display, dependent on backlight control
     - 041817 - move LCD to I2C
     - button code removed
-    
+  07/15/17
+    - 041417 - read RTC via time library (look at DS3232RTC.h and time.h)
+    - 070617 - move code in main to functions
+    - 042617 - single digit hours, minutes, seconds to 2 fixed digits
+    - 041817 - three digit seconds bug (due to cursor position and time length?) fix
+    - 041917 - untrasonic as range finding function returning cm as int
 
   Feature Requests
-    - 041417 - read RTC via time library
-    - 041817 - display bug due to cursor position and time length needs to get fix (minutes and seconds)
-    - 041917 - untrasonic as range finding function returning cm as int
     - 042317 - implement debug flag for conditional debug messages
+  	- 042617 - supress power and built-in LEDs
+  	- 050417 - Larger text for time (change screens)
+  	- 050417 - Need to change LCD backlight level
+    - 070617 - comment all Serial debug code when code is stable again
     
 */
 
 // Library initialization
-#include "Adafruit_LiquidCrystal.h"
+#include <Adafruit_LiquidCrystal.h>
 #include <Wire.h>
+#include <TimeLib.h>
+#include <DS1307RTC.h> // Works with DS3231 as well
 
-// Assign Arduino pins
+// Pin connections
 #define pushButtonOnePin  7
 #define trigPin 12
-#define echoPin 13
+#define echoPin 11
+// SDL
+// CLK
 
-// Connect via i2c, default address #0 (A0-A2 not jumpered)
+// LCD connection via i2c, default address #0 (A0-A2 not jumpered)
 Adafruit_LiquidCrystal lcd(0);
 
-// Assign global variables
+// Global variables
 const byte longPressLength = 25;    // Min number of loops for a long press
 const byte loopDelay = 20;          // Delay per main loop in ms
-
+const byte triggerDistance = 20;	// Distance in centimeters to turn on and off the LCD backlight
 enum { EV_NONE = 0, EV_SHORTPRESS, EV_LONGPRESS };
 
 // Class definition
@@ -130,7 +140,6 @@ void buttonEvent(const char* button_name, int event)
 }
 
 void setup() {
-  Wire.begin();
   Serial.begin(57600);
 
   //Setup ultrasonic sensor
@@ -139,75 +148,103 @@ void setup() {
   
   // Setup push buttons
   // buttonOne.init();
+
+  while (!Serial) ; // wait until Arduino Serial Monitor opens
+  setSyncProvider(RTC.get);   // the function to get the time from the RTC
+  if(timeStatus()!= timeSet) 
+     Serial.println("Unable to sync with the RTC");
+  else
+     Serial.println("RTC has set the system time");
  
-  // set up the LCD's number of columns and rows:
+  // set LCD columns and rows
   lcd.begin(16, 2);
   // display initial screen information
   lcd.print("Current time is:");
-
-  // clear /EOSC bit
-  // Sometimes necessary to ensure that the clock
-  // keeps running on just battery power. Once set,
-  // it shouldn't need to be reset but it's a good
-  // idea to make sure.
-  Wire.beginTransmission(0x68); // address DS3231
-  Wire.write(0x0E); // select register
-  Wire.write(0b00011100); // write register bitmap, bit 7 is /EOSC
-  Wire.endTransmission();
 }
 
-void loop() {
-
+void loop()
+{
   // read button for events
   //int event1 = buttonOne.handle();
 
   // deal with button events
   //buttonEvent("buttonOne", event1);
 
-    // send request to receive data starting at register 0
-  Wire.beginTransmission(0x68); // 0x68 is DS3231 device address
-  Wire.write((byte)0); // start at register 0
-  Wire.endTransmission();
-  Wire.requestFrom(0x68, 3); // request three bytes (seconds, minutes, hours)
- 
-  while(Wire.available())
-  { 
-    int seconds = Wire.read(); // get seconds
-    int minutes = Wire.read(); // get minutes
-    int hours = Wire.read();   // get hours
- 
-    seconds = (((seconds & 0b11110000)>>4)*10 + (seconds & 0b00001111)); // convert BCD to decimal
-    minutes = (((minutes & 0b11110000)>>4)*10 + (minutes & 0b00001111)); // convert BCD to decimal
-    hours = (((hours & 0b00100000)>>5)*20 + ((hours & 0b00010000)>>4)*10 + (hours & 0b00001111)); // convert BCD to decimal (assume 24 hour mode)
- 
-    
-  // set the cursor to column 0, line 1. line 1 is the second row, since counting begins with 0
-  lcd.setCursor(0, 1);
-  lcd.print(hours); lcd.print(":"); lcd.print(minutes); lcd.print(":"); lcd.print(seconds);
-  Serial.print(hours); Serial.print(":"); Serial.print(minutes); Serial.print(":"); Serial.println(seconds);
+  if (timeStatus() == timeSet) {
+    digitalClockDisplay();
+    toggleBacklight(readDistance());
+  } else {
+    Serial.println("Please set RTC clock time for this solution to work properly");
+    delay(4000);
+  }
+  delay(1000);
   }
 
-  // ultrasonic read (test)
-   long duration, distance;
-  digitalWrite(trigPin, LOW);  // Added this line
-  delayMicroseconds(2); // Added this line
-  digitalWrite(trigPin, HIGH);
-//  delayMicroseconds(1000); - Removed this line
-  delayMicroseconds(10); // Added this line
+int readDistance ()
+{
+  long duration;
+  int  cm;
+ 
+  // Returns distance from sensor in centimeters 
+  // ultrasonic sensor read
+  // clears the trigPin
   digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  // Sets the trigPin on HIGH state for 10 microseconds
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  // Reads the echoPin, returns the sound wave travel time in microseconds
   duration = pulseIn(echoPin, HIGH);
-  distance = (duration/2) / 29.1;
-  if (distance < 20)
+  // Distance = (Speed of sound * Time delay) / 2
+  // the speed of sound is 343.4 m/s or 0.0343 cm/microsecond to the Temperature of 20°C.
+  //   inches = (duration/2) / 741;
+  cm = duration/58;
+  Serial.print(cm);
+  Serial.print(" cm; ");
+  return(cm);
+}
+
+void toggleBacklight (int distance) 
+{
+  // Clock display is made visible if object is close enough to clock
+  if (distance < triggerDistance)
   {  
-    Serial.println("turn on the clock");
+    Serial.println("activating backlight");
     lcd.setBacklight(HIGH);
   }
   else
   {
-    Serial.println("turn off the backlight");
+    Serial.println("disabling backlight");
     lcd.setBacklight(LOW);
   }
-    Serial.print(distance);
-    Serial.println(" cm");
-  delay(1000);
+}
+
+void digitalClockDisplay()
+{
+  //displays time on LCD clock
+  // set the cursor to column 0, line 1. line 1 is the second row, since counting begins with 0
+  lcd.setCursor(0, 1);
+  // display time
+  lcd.print(hour());
+  clockDigits(minute());
+  clockDigits(second());
+  // debug time display
+  Serial.print(hour()); Serial.print(":"); Serial.print(minute()); Serial.print(":"); Serial.println(second());
+  // Display date
+  //Serial.print(day());
+  //Serial.print(" ");
+  //Serial.print(month());
+  //Serial.print(" ");
+  //Serial.print(year()); 
+  //Serial.println(); 
+}
+
+void clockDigits(int digits)
+{
+  // function for digital clock display: prints preceding colon and leading 0
+  lcd.print(":");
+  if(digits < 10)
+    lcd.print('0');
+  lcd.print(digits);
 }
