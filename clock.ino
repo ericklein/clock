@@ -1,44 +1,9 @@
 /*
-  Project Name : clock
-  Developer : Eric Klein Jr. (temp2@ericklein.com)
-  Description : Clock that only turns on when an object (hand) is close to the device
-  Last Revision Date : 07/15/17
-    
-  Target
-    - Works with all Arduino boards, uses I2C ports which are board dependent
-    - Overview of 16x2 LCD panels available at: http://oomlout.com/parts/LCDD-01-guide.pdf
-    - Overview of ChronoDot (RTC) at: http://docs.macetech.com/doku.php/chronodot_v2.0
-    - Overview of HC-SR04 (ultrasonic sensor) at: https://docs.google.com/document/d/1Y-yZnNhMYy7rwhAgyL_pfa39RsB-x2qR4vP8saG73rE/edit
-    
-  Revisions
-  04/14/17 
-    - version cloned from current badge to control 6 pin LCD screen
-    - version cloned from current button though functionality is not used
-    - reading from ChronoDot via simple i2c read
-    - ChronoDot time set via example code not in this code base (yet?)
-  04/16/17
-    - button toggles screen text on and off, did not do what I wanted functionality wise
-  04/18/17
-    - Added ultrasonic code which will ultimately trigger clock visibility
-  04/23/17
-    - 041617 - put LCD backlight under programatic control
-    - 041817 - integrate ultrasonic into display, dependent on backlight control
-    - 041817 - move LCD to I2C
-    - button code removed
-  07/15/17
-    - 041417 - read RTC via time library (look at DS3232RTC.h and time.h)
-    - 070617 - move code in main to functions
-    - 042617 - single digit hours, minutes, seconds to 2 fixed digits
-    - 041817 - three digit seconds bug (due to cursor position and time length?) fix
-    - 041917 - untrasonic as range finding function returning cm as int
+  Project Name:   clock
+  Developer:      Eric Klein Jr. (temp2@ericklein.com)
+  Description:    Clock that only turns on when an object (hand) is close to the device
 
-  Feature Requests
-    - 042317 - implement debug flag for conditional debug messages
-  	- 042617 - supress power and built-in LEDs
-  	- 050417 - Larger text for time (change screens)
-  	- 050417 - Need to change LCD backlight level
-    - 070617 - comment all Serial debug code when code is stable again
-    
+  See README.md for target information, revision history, feature requests, etc.
 */
 
 // Library initialization
@@ -46,146 +11,106 @@
 #include <Wire.h>
 #include <TimeLib.h>
 #include <DS1307RTC.h> // Works with DS3231 as well
+#include "buttonhandler.h"
+#include "VFDTube.h"
+
+// Conditional code, comment out the display not in use
+#define displayVFD
+#define displayLCD
 
 // Pin connections
-#define pushButtonOnePin  7
-#define trigPin 12
-#define echoPin 11
-// SDL
-// CLK
+// buttons
+//#define pushButtonOnePin  7
 
-// LCD connection via i2c, default address #0 (A0-A2 not jumpered)
-Adafruit_LiquidCrystal lcd(0);
+// ultrasound
+#define trigPin 7
+#define echoPin 6
+
+#ifdef displayVFD
+#define DINPin  8
+#define OEPin   9 //PWM output
+#define STCPPin 10
+#define SHCPPin 11
+#endif
 
 // Global variables
-const byte longPressLength = 25;    // Min number of loops for a long press
-const byte loopDelay = 20;          // Delay per main loop in ms
-const byte triggerDistance = 20;	// Distance in centimeters to turn on and off the LCD backlight
-enum { EV_NONE = 0, EV_SHORTPRESS, EV_LONGPRESS };
+const byte triggerDistance = 20;  // Distance in centimeters to turn on and off the LCD backlight
+#ifdef displayVFD
+#define tubeCount 6
+#endif
 
-// Class definition
+#ifdef displayLCD
+#define lcdRows   2
+#define lcdColumns 16
+#endif
 
-class ButtonHandler {
-  public:
-    // Constructor
-    ButtonHandler(int pin, int longpress_len = longPressLength);
-
-    // Initialization done after construction, to permit static instances
-    void init();
-
-    // Handler, to be called in the loop()
-    int handle();
-
-  protected:
-    boolean was_pressed;     // previous state
-    int pressed_counter;     // press running duration
-    const int pin;           // pin to which button is connected
-    const int longpress_len; // longpress duration
-};
-
-ButtonHandler::ButtonHandler(int p, int lp)
-  : pin(p), longpress_len(lp)
-{
-}
-
-void ButtonHandler::init()
-{
-  pinMode(pin, INPUT_PULLUP);
-  was_pressed = false;
-  pressed_counter = 0;
-}
-
-int ButtonHandler::handle()
-{
-  int event;
-  int now_pressed = !digitalRead(pin);
-
-  if (!now_pressed && was_pressed) {
-    // handle release event
-    if (pressed_counter < longpress_len)
-      event = EV_SHORTPRESS;
-    else
-      event = EV_LONGPRESS;
-  }
-  else
-    event = EV_NONE;
-
-  // update press running duration
-  if (now_pressed)
-    ++pressed_counter;
-  else
-    pressed_counter = 0;
-
-  // remember state, and we're done
-  was_pressed = now_pressed;
-  return event;
-}
+// Display connections
+#ifdef displayLCD
+Adafruit_LiquidCrystal lcd(0); //i2c connection, default address #0 (A0-A2 not jumpered)
+#endif
+#ifdef displayVFD
+VFDTube tube(DINPin, OEPin, STCPPin, SHCPPin, tubeCount);
+#endif
 
 // Instantiate button objects
-ButtonHandler buttonOne(pushButtonOnePin);
-
-void buttonEvent(const char* button_name, int event)
-{
-  //short press on buttonOne
-  if ((button_name == "buttonOne") && (event == 1))
-  {
-    Serial.println("short press on button one");
-  }
-  //long press on buttonOne
-  if ((button_name == "buttonOne") && (event == 2))
-  {
-    Serial.println("long press on button one");
-  }
-  delay(loopDelay); //debounce
-}
+//ButtonHandler buttonOne(pushButtonOnePin);
 
 void setup() {
-  Serial.begin(57600);
+  Serial.begin(115200);
 
   //Setup ultrasonic sensor
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
-  
-  // Setup push buttons
-  // buttonOne.init();
+
+  //Setup push buttons
+  //buttonOne.init();
 
   while (!Serial) ; // wait until Arduino Serial Monitor opens
   setSyncProvider(RTC.get);   // the function to get the time from the RTC
-  if(timeStatus()!= timeSet) 
-     Serial.println("Unable to sync with the RTC");
+  if (timeStatus() != timeSet)
+    Serial.println("Unable to sync with the RTC");
   else
-     Serial.println("RTC has set the system time");
- 
-  // set LCD columns and rows
-  lcd.begin(16, 2);
-  // display initial screen information
+    Serial.println("RTC has set the system time");
+
+  // Prepare LCD
+#ifdef displayLCD
+  lcd.begin(lcdColumns, lcdRows);
   lcd.print("Current time is:");
+#endif
+
+  // Prepare vfd
+#ifdef displayVFD
+  tube.setBrightness(0x4b); // set brightness, range 0x00 - 0xff [0-255]
+#endif
 }
 
 void loop()
 {
-  // read button for events
-  //int event1 = buttonOne.handle();
-
-  // deal with button events
-  //buttonEvent("buttonOne", event1);
+  /*switch (buttonOne.handle()) {
+    case BTN_SHORTPRESS:
+      Serial.println("button short press"); //debug text
+      break;
+    case BTN_LONGPRESS:
+      Serial.println("button long press"); //debug text
+      break;
+    } */
 
   if (timeStatus() == timeSet) {
-    digitalClockDisplay();
+    ClockDisplay();
     toggleBacklight(readDistance());
   } else {
     Serial.println("Please set RTC clock time for this solution to work properly");
     delay(4000);
   }
   delay(1000);
-  }
+}
 
 int readDistance ()
 {
   long duration;
   int  cm;
- 
-  // Returns distance from sensor in centimeters 
+
+  // Returns distance from sensor in centimeters
   // ultrasonic sensor read
   // clears the trigPin
   digitalWrite(trigPin, LOW);
@@ -199,52 +124,85 @@ int readDistance ()
   // Distance = (Speed of sound * Time delay) / 2
   // the speed of sound is 343.4 m/s or 0.0343 cm/microsecond to the Temperature of 20°C.
   //   inches = (duration/2) / 741;
-  cm = duration/58;
+  cm = duration / 58;
   Serial.print(cm);
   Serial.print(" cm; ");
-  return(cm);
+  return (cm);
 }
 
-void toggleBacklight (int distance) 
+void toggleBacklight (int distance)
 {
   // Clock display is made visible if object is close enough to clock
   if (distance < triggerDistance)
-  {  
-    Serial.println("activating backlight");
+  {
+    //lcd
+#ifdef displayLCD
     lcd.setBacklight(HIGH);
+#endif
+    //vfd
+#ifdef displayVFD
+    tube.setBrightness(0xd0); // set brightness, range 0x00 - 0xff [0-255]
+#endif
+    Serial.println("activating backlight");
+
   }
   else
   {
-    Serial.println("disabling backlight");
+    //lcd
+#ifdef displayLCD
     lcd.setBacklight(LOW);
+#endif
+    //vfd
+#ifdef displayVFD
+    tube.setBrightness(0x4b); // set brightness, range 0x00 - 0xff [0-255]
+#endif
+    Serial.println("deactiving backlight");
   }
 }
 
-void digitalClockDisplay()
+void ClockDisplay()
 {
-  //displays time on LCD clock
-  // set the cursor to column 0, line 1. line 1 is the second row, since counting begins with 0
-  lcd.setCursor(0, 1);
-  // display time
-  lcd.print(hour());
-  clockDigits(minute());
-  clockDigits(second());
+  char timebuffer[9];
+  sprintf(timebuffer, "%02d:%02d:%02d", hour(), minute(), second());
+  // LCD
+#ifdef displayLCD
+  lcd.setCursor(0, 1); // column 0, line 1. line 1 is the second row, since counting begins with 0
+  lcd.print(timebuffer);
+#endif
+
+  // vfd
+#ifdef displayVFD
+  tube.clear();
+  tube.printf("%02d%02d%02d", hour(), minute(), second());
+  tube.display();
+#endif
+
   // debug time display
-  Serial.print(hour()); Serial.print(":"); Serial.print(minute()); Serial.print(":"); Serial.println(second());
-  // Display date
-  //Serial.print(day());
-  //Serial.print(" ");
-  //Serial.print(month());
-  //Serial.print(" ");
-  //Serial.print(year()); 
-  //Serial.println(); 
+  Serial.println(timebuffer);
 }
 
-void clockDigits(int digits)
-{
-  // function for digital clock display: prints preceding colon and leading 0
-  lcd.print(":");
-  if(digits < 10)
-    lcd.print('0');
-  lcd.print(digits);
-}
+/*
+
+  Code to manually change the time via buttons, see 041417 checkin and 071617 requests re: change time
+
+
+  void TimeAdjust(){
+  int buttonH = digitalRead(5);
+  int buttonM = digitalRead(4);
+  if (buttonH == LOW || buttonM == LOW){
+    delay(500);
+    tmElements_t Now;
+    RTC.read(Now);
+    int hour=Now.Hour;
+    int minutes=Now.Minute;
+    int second =Now.Second;
+      if (buttonH == LOW){
+        if (Now.Hour== 23){Now.Hour=0;}
+          else {Now.Hour += 1;};
+        }else {
+          if (Now.Minute== 59){Now.Minute=0;}
+          else {Now.Minute += 1;};
+          };
+    RTC.write(Now);
+    }
+  }*/
