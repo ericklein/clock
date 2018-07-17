@@ -15,12 +15,13 @@
 #include "VFDTube.h"
 
 // Conditional code, comment out the display not in use
-#define displayVFD
+// #define displayVFD
 #define displayLCD
 
-// Pin connections
-// buttons
-//#define pushButtonOnePin  7
+//Pin connections
+//buttons
+#define pushButtonHourPin  12
+#define pushButtonMinutePin  11
 
 // ultrasound
 #define trigPin 7
@@ -35,6 +36,8 @@
 
 // Global variables
 const byte triggerDistance = 20;  // Distance in centimeters to turn on and off the LCD backlight
+enum { BTN_NOPRESS = 0, BTN_SHORTPRESS, BTN_LONGPRESS };
+#define buttonDelay 10
 #ifdef displayVFD
 #define tubeCount 6
 #endif
@@ -53,7 +56,8 @@ VFDTube tube(DINPin, OEPin, STCPPin, SHCPPin, tubeCount);
 #endif
 
 // Instantiate button objects
-//ButtonHandler buttonOne(pushButtonOnePin);
+ButtonHandler buttonHour(pushButtonHourPin, buttonDelay);
+ButtonHandler buttonMinute(pushButtonMinutePin, buttonDelay);
 
 void setup() {
   Serial.begin(115200);
@@ -63,20 +67,26 @@ void setup() {
   pinMode(echoPin, INPUT);
 
   //Setup push buttons
-  //buttonOne.init();
+  buttonHour.init();
+  buttonMinute.init();
 
   while (!Serial) ; // wait until Arduino Serial Monitor opens
-  setSyncProvider(RTC.get);   // the function to get the time from the RTC
-  if (timeStatus() != timeSet)
-    Serial.println("Unable to sync with the RTC");
-  else
-    Serial.println("RTC has set the system time");
+
+      // make sure the RTC has been set previously
+      setSyncProvider(RTC.get);
+      if (timeStatus() != timeSet)
+      {
+        Serial.println("Unable to sync with RTC, time needs to be manually updated");
+        setTime(18,51,00,22,6,2018); //values in the order hr,min,sec,day,month,year
+      }
+      else
+        Serial.println("RTC has set the time");
 
   // Prepare LCD
-#ifdef displayLCD
-  lcd.begin(lcdColumns, lcdRows);
-  lcd.print("Current time is:");
-#endif
+  #ifdef displayLCD
+    lcd.begin(lcdColumns, lcdRows);
+    lcd.print("Current time is:");
+  #endif
 
   // Prepare vfd
 #ifdef displayVFD
@@ -86,23 +96,13 @@ void setup() {
 
 void loop()
 {
-  /*switch (buttonOne.handle()) {
-    case BTN_SHORTPRESS:
-      Serial.println("button short press"); //debug text
-      break;
-    case BTN_LONGPRESS:
-      Serial.println("button long press"); //debug text
-      break;
-    } */
-
-  if (timeStatus() == timeSet) {
-    ClockDisplay();
+  adjustTime();
+  if (timeStatus() == timeSet)
+  {
+    displayClock();
     toggleBacklight(readDistance());
-  } else {
-    Serial.println("Please set RTC clock time for this solution to work properly");
-    delay(4000);
-  }
-  delay(1000);
+  } 
+  else Serial.println("RTC is either waiting to sync or a serious hardware issue has emerged");
 }
 
 int readDistance ()
@@ -125,8 +125,8 @@ int readDistance ()
   // the speed of sound is 343.4 m/s or 0.0343 cm/microsecond to the Temperature of 20°C.
   //   inches = (duration/2) / 741;
   cm = duration / 58;
-  Serial.print(cm);
-  Serial.print(" cm; ");
+  //Serial.print(cm);
+  //Serial.print(" cm; ");
   return (cm);
 }
 
@@ -143,7 +143,7 @@ void toggleBacklight (int distance)
 #ifdef displayVFD
     tube.setBrightness(0xd0); // set brightness, range 0x00 - 0xff [0-255]
 #endif
-    Serial.println("activating backlight");
+    //Serial.println("activating backlight");
 
   }
   else
@@ -156,11 +156,11 @@ void toggleBacklight (int distance)
 #ifdef displayVFD
     tube.setBrightness(0x4b); // set brightness, range 0x00 - 0xff [0-255]
 #endif
-    Serial.println("deactiving backlight");
+    //Serial.println("deactiving backlight");
   }
 }
 
-void ClockDisplay()
+void displayClock()
 {
   char timebuffer[9];
   sprintf(timebuffer, "%02d:%02d:%02d", hour(), minute(), second());
@@ -178,31 +178,44 @@ void ClockDisplay()
 #endif
 
   // debug time display
-  Serial.println(timebuffer);
+  //Serial.println(timebuffer);
 }
 
-/*
+void adjustTime()
+// Manually update time via user input
+{
+  int newHour = hour();
+  int newMinute = minute();
+  switch (buttonHour.handle())
+  {
+  case BTN_SHORTPRESS:
+    //Debug text
+    Serial.println("hour button short press");
+    if (newHour == 23) newHour=0;
+    else newHour++;
+    setTime(newHour,minute(), second(), day(), month(), year());
+  if (RTC.chipPresent()) RTC.set(now());
+  else
+      Serial.println("Unable to set RTC time");
+  break;
+  case BTN_LONGPRESS:
+    Serial.println("hour button long press"); //debug text
+    break;
+  }
 
-  Code to manually change the time via buttons, see 041417 checkin and 071617 requests re: change time
-
-
-  void TimeAdjust(){
-  int buttonH = digitalRead(5);
-  int buttonM = digitalRead(4);
-  if (buttonH == LOW || buttonM == LOW){
-    delay(500);
-    tmElements_t Now;
-    RTC.read(Now);
-    int hour=Now.Hour;
-    int minutes=Now.Minute;
-    int second =Now.Second;
-      if (buttonH == LOW){
-        if (Now.Hour== 23){Now.Hour=0;}
-          else {Now.Hour += 1;};
-        }else {
-          if (Now.Minute== 59){Now.Minute=0;}
-          else {Now.Minute += 1;};
-          };
-    RTC.write(Now);
-    }
-  }*/
+  switch (buttonMinute.handle())
+  {
+  case BTN_SHORTPRESS:
+  Serial.println("minute button short press"); //debug text
+    if (newMinute == 59) newMinute=0;
+    else newMinute++;
+        setTime(hour(),newMinute, second(), day(), month(), year());
+    if (RTC.chipPresent()) RTC.set(now());
+    else
+      Serial.println("Unable to set RTC time");  
+  break;
+  case BTN_LONGPRESS:
+    Serial.println("minute button long press"); //debug text
+    break;
+  }
+}

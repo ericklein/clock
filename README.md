@@ -11,6 +11,7 @@ Sources
     
   Target
     - Project requires 5v input
+    - 6 VFD require dedicated 5v, >=1.3A
     - Works with all Arduino boards, uses I2C pins which are board dependent
     - Overview of 16x2 LCD panels available at: http://oomlout.com/parts/LCDD-01-guide.pdf
     - Overview of Adafruit i2c/SPI LCD Backpack at: https://learn.adafruit.com/i2c-spi-lcd-backpack/
@@ -67,11 +68,13 @@ Sources
   06/21/18
     - 062018 - conditional switch between LCD and VFDTube displays
     - improved clock string handling = ClockDigits(x) removed
+  07/16/18
+    - 071617 - ability to modify time
+    - 062018 - ability to set time manually
+    - 071618 - changes for ButtonHandler library updates
 
   Feature Requests
     - 042317 - move serial debug code to conditional compile
-  	- 042617 - supress power and built-in LEDs
-  	- 050417 - Larger text for time (change screens)
-  	- 050417 - Need to change LCD backlight level
-    - 071617 - ability to modify time
-    - 062018 - ability to set time manually
+  	- 042617 - supress power and built-in LEDs on development boards
+  	- 050417 - change screen types to facilitate larger text for time
+  	- 050417 - ability to change LCD backlight level
